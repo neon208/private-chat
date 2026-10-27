@@ -24,7 +24,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent">Private Chat</h1>
-                    <p id="header-status" class="text-xs text-slate-400">ワンクリックで始められる安全なルームチャット</p>
+                    <p id="header-status" class="text-xs text-slate-400">どの端末からでも繋がるオンラインルームチャット</p>
                 </div>
             </div>
             
@@ -122,15 +122,12 @@
                             <span class="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">ルーム名</span>
                             <h3 id="sidebar-room-name" class="font-bold text-sm text-slate-100 truncate">----</h3>
                         </div>
-                        <button id="test-launch-btn" class="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl py-2 px-3 text-xs font-semibold transition-all flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-window-restore"></i> 別タブでテスト起動
-                        </button>
                     </div>
 
                     <div class="flex-1 p-4 overflow-y-auto scrollbar-thin space-y-3">
                         <div class="flex justify-between items-center text-xs text-slate-400 font-semibold">
-                            <span>オンライン参加者</span>
-                            <span id="member-count-badge" class="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[10px]">1</span>
+                            <span>参加メンバー</span>
+                            <span id="member-count-badge" class="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[10px]">0</span>
                         </div>
                         <ul id="members-list" class="space-y-1.5"></ul>
                     </div>
@@ -162,172 +159,224 @@
         </main>
     </div>
 
-    <script>
-        (() => {
-            const STORAGE_KEY = 'private_chat_rooms_v2';
-            const CHANNEL_NAME = 'private_chat_channel';
-            let currentUser = '', currentRoomId = null, broadcastChannel = null;
+    <!-- Firebase SDK (Version 9 Component) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+        import { 
+            getFirestore, collection, doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, onSnapshot, serverTimestamp 
+        } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-            const lobbyScreen = document.getElementById('lobby-screen');
-            const chatScreen = document.getElementById('chat-screen');
-            const roomInfoBar = document.getElementById('room-info-bar');
-            const displayRoomId = document.getElementById('display-room-id');
-            const usernameInput = document.getElementById('username-input');
-            const tabJoinBtn = document.getElementById('tab-join-btn');
-            const tabCreateBtn = document.getElementById('tab-create-btn');
-            const formJoin = document.getElementById('form-join');
-            const formCreate = document.getElementById('form-create');
-            const joinRoomId = document.getElementById('join-room-id');
-            const joinPasscode = document.getElementById('join-passcode');
-            const createRoomName = document.getElementById('create-room-name');
-            const createPasscode = document.getElementById('create-passcode');
-            const actionJoinBtn = document.getElementById('action-join-btn');
-            const actionCreateBtn = document.getElementById('action-create-btn');
-            const leaveRoomBtn = document.getElementById('leave-room-btn');
-            const copyRoomIdBtn = document.getElementById('copy-room-id-btn');
-            const testLaunchBtn = document.getElementById('test-launch-btn');
-            const lobbyAlert = document.getElementById('lobby-alert');
-            const lobbyAlertMsg = document.getElementById('lobby-alert-msg');
-            const sidebarRoomName = document.getElementById('sidebar-room-name');
-            const membersList = document.getElementById('members-list');
-            const memberCountBadge = document.getElementById('member-count-badge');
-            const messagesContainer = document.getElementById('messages-container');
-            const chatForm = document.getElementById('chat-form');
-            const messageInput = document.getElementById('message-input');
-            const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
-            const chatSidebar = document.getElementById('chat-sidebar');
-            const sidebarOverlay = document.getElementById('sidebar-overlay');
+        // 公開用デモ構成（テスト用設定）
+        const firebaseConfig = {
+            apiKey: "AIzaSyD-DemoKeyForPublicTestingChatApp",
+            authDomain: "public-chat-demo-app.firebaseapp.com",
+            projectId: "public-chat-demo-app",
+            storageBucket: "public-chat-demo-app.appspot.com",
+            messagingSenderId: "100000000000",
+            appId: "1:100000000000:web:abcdef123456789"
+        };
 
-            function getAllRooms() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (e) { return {}; } }
-            function saveAllRooms(rooms) { localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms)); }
-            function getRoom(id) { return getAllRooms()[id] || null; }
-            function saveRoom(room) { const r = getAllRooms(); r[room.id] = room; saveAllRooms(r); }
-            function generateRoomId() {
-                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-                let id = ''; for (let i = 0; i < 6; i++) id += chars.charAt(Math.floor(Math.random() * chars.length));
-                return id;
-            }
-            function showAlert(msg) { lobbyAlertMsg.textContent = msg; lobbyAlert.classList.remove('hidden'); }
-            function hideAlert() { lobbyAlert.classList.add('hidden'); }
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
-            if ('BroadcastChannel' in window) {
-                broadcastChannel = new BroadcastChannel(CHANNEL_NAME);
-                broadcastChannel.onmessage = (e) => { if (e.data && e.data.roomId === currentRoomId) renderChatScreen(); };
-            }
-            function notifyTabs(id) { if (broadcastChannel) broadcastChannel.postMessage({ roomId: id }); }
+        let currentUser = '', currentRoomId = null, unsubscribeRoom = null;
 
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('room')) joinRoomId.value = params.get('room').toUpperCase();
+        const lobbyScreen = document.getElementById('lobby-screen');
+        const chatScreen = document.getElementById('chat-screen');
+        const roomInfoBar = document.getElementById('room-info-bar');
+        const displayRoomId = document.getElementById('display-room-id');
+        const usernameInput = document.getElementById('username-input');
+        const tabJoinBtn = document.getElementById('tab-join-btn');
+        const tabCreateBtn = document.getElementById('tab-create-btn');
+        const formJoin = document.getElementById('form-join');
+        const formCreate = document.getElementById('form-create');
+        const joinRoomId = document.getElementById('join-room-id');
+        const joinPasscode = document.getElementById('join-passcode');
+        const createRoomName = document.getElementById('create-room-name');
+        const createPasscode = document.getElementById('create-passcode');
+        const actionJoinBtn = document.getElementById('action-join-btn');
+        const actionCreateBtn = document.getElementById('action-create-btn');
+        const leaveRoomBtn = document.getElementById('leave-room-btn');
+        const copyRoomIdBtn = document.getElementById('copy-room-id-btn');
+        const lobbyAlert = document.getElementById('lobby-alert');
+        const lobbyAlertMsg = document.getElementById('lobby-alert-msg');
+        const sidebarRoomName = document.getElementById('sidebar-room-name');
+        const membersList = document.getElementById('members-list');
+        const memberCountBadge = document.getElementById('member-count-badge');
+        const messagesContainer = document.getElementById('messages-container');
+        const chatForm = document.getElementById('chat-form');
+        const messageInput = document.getElementById('message-input');
+        const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+        const chatSidebar = document.getElementById('chat-sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
 
-            tabJoinBtn.onclick = () => {
-                tabJoinBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-100 bg-slate-800 shadow';
-                tabCreateBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400';
-                formJoin.classList.remove('hidden'); formCreate.classList.add('hidden'); hideAlert();
-            };
-            tabCreateBtn.onclick = () => {
-                tabCreateBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-100 bg-slate-800 shadow';
-                tabJoinBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400';
-                formCreate.classList.remove('hidden'); formJoin.classList.add('hidden'); hideAlert();
-            };
+        function generateRoomId() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let id = ''; for (let i = 0; i < 6; i++) id += chars.charAt(Math.floor(Math.random() * chars.length));
+            return id;
+        }
+        function showAlert(msg) { lobbyAlertMsg.textContent = msg; lobbyAlert.classList.remove('hidden'); }
+        function hideAlert() { lobbyAlert.classList.add('hidden'); }
 
-            actionCreateBtn.onclick = () => {
-                hideAlert();
-                const u = usernameInput.value.trim(), name = createRoomName.value.trim(), pass = createPasscode.value;
-                if (!u) { showAlert('表示名を入力してください'); return; }
-                if (!name) { showAlert('ルーム名を入力してください'); return; }
-                const id = generateRoomId();
-                saveRoom({ id, name, passcode: pass || null, members: [u], messages: [{ id: Date.now(), type: 'system', text: `ルーム「${name}」が作成されました`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] });
-                notifyTabs(id); enterRoom(id, u);
-            };
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('room')) joinRoomId.value = params.get('room').toUpperCase();
 
-            actionJoinBtn.onclick = () => {
-                hideAlert();
-                const u = usernameInput.value.trim(), id = joinRoomId.value.trim().toUpperCase(), pass = joinPasscode.value;
-                if (!u) { showAlert('表示名を入力してください'); return; }
-                if (!id) { showAlert('ルームIDを入力してください'); return; }
-                const room = getRoom(id);
-                if (!room) { showAlert('指定されたルームが見つかりません'); return; }
-                if (room.passcode && room.passcode !== pass) { showAlert('パスコードが正しくありません'); return; }
-                if (!room.members.includes(u)) {
-                    room.members.push(u);
-                    room.messages.push({ id: Date.now(), type: 'system', text: `${u} が参加しました`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
-                    saveRoom(room); notifyTabs(id);
-                }
+        tabJoinBtn.onclick = () => {
+            tabJoinBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-100 bg-slate-800 shadow';
+            tabCreateBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400';
+            formJoin.classList.remove('hidden'); formCreate.classList.add('hidden'); hideAlert();
+        };
+        tabCreateBtn.onclick = () => {
+            tabCreateBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-100 bg-slate-800 shadow';
+            tabJoinBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400';
+            formCreate.classList.remove('hidden'); formJoin.classList.add('hidden'); hideAlert();
+        };
+
+        actionCreateBtn.onclick = async () => {
+            hideAlert();
+            const u = usernameInput.value.trim(), name = createRoomName.value.trim(), pass = createPasscode.value;
+            if (!u) { showAlert('表示名を入力してください'); return; }
+            if (!name) { showAlert('ルーム名を入力してください'); return; }
+            const id = generateRoomId();
+
+            try {
+                const roomRef = doc(db, "rooms", id);
+                await setDoc(roomRef, {
+                    name,
+                    passcode: pass || null,
+                    members: [u],
+                    messages: [{
+                        id: Date.now(),
+                        type: 'system',
+                        text: `ルーム「${name}」が作成されました`,
+                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    }]
+                });
                 enterRoom(id, u);
-            };
-
-            function enterRoom(id, u) {
-                currentRoomId = id; currentUser = u;
-                lobbyScreen.classList.add('hidden'); chatScreen.classList.remove('hidden');
-                roomInfoBar.classList.remove('hidden'); roomInfoBar.classList.add('flex');
-                displayRoomId.textContent = id; renderChatScreen(); scrollToBottom();
+            } catch (e) {
+                showAlert('ルームの作成に失敗しました。');
             }
+        };
 
-            function leaveRoom() {
-                if (currentRoomId && currentUser) {
-                    const room = getRoom(currentRoomId);
-                    if (room) {
-                        room.members = room.members.filter(m => m !== currentUser);
-                        room.messages.push({ id: Date.now(), type: 'system', text: `${currentUser} が退出しました`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
-                        saveRoom(room); notifyTabs(currentRoomId);
-                    }
+        actionJoinBtn.onclick = async () => {
+            hideAlert();
+            const u = usernameInput.value.trim(), id = joinRoomId.value.trim().toUpperCase(), pass = joinPasscode.value;
+            if (!u) { showAlert('表示名を入力してください'); return; }
+            if (!id) { showAlert('ルームIDを入力してください'); return; }
+
+            try {
+                const roomRef = doc(db, "rooms", id);
+                const roomSnap = await getDoc(roomRef);
+                if (!roomSnap.exists()) { showAlert('指定されたルームが見つかりません'); return; }
+                const room = roomSnap.data();
+                if (room.passcode && room.passcode !== pass) { showAlert('パスコードが正しくありません'); return; }
+
+                await updateDoc(roomRef, {
+                    members: arrayUnion(u),
+                    messages: arrayUnion({
+                        id: Date.now(),
+                        type: 'system',
+                        text: `${u} が参加しました`,
+                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    })
+                });
+                enterRoom(id, u);
+            } catch (e) {
+                showAlert('ルームへの参加に失敗しました。');
+            }
+        };
+
+        function enterRoom(id, u) {
+            currentRoomId = id; currentUser = u;
+            lobbyScreen.classList.add('hidden'); chatScreen.classList.remove('hidden');
+            roomInfoBar.classList.remove('hidden'); roomInfoBar.classList.add('flex');
+            displayRoomId.textContent = id;
+
+            // リアルタイムリスナーを開始
+            const roomRef = doc(db, "rooms", id);
+            unsubscribeRoom = onSnapshot(roomRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    renderChatScreen(docSnap.data());
+                } else {
+                    leaveRoom();
                 }
-                currentRoomId = null; currentUser = '';
-                chatScreen.classList.add('hidden'); roomInfoBar.classList.add('hidden'); roomInfoBar.classList.remove('flex');
-                lobbyScreen.classList.remove('hidden');
-            }
+            });
+        }
 
-            chatForm.onsubmit = (e) => {
-                e.preventDefault();
-                const text = messageInput.value.trim();
-                if (!text || !currentRoomId) return;
-                const room = getRoom(currentRoomId);
-                if (!room) return;
-                room.messages.push({ id: Date.now(), type: 'user', sender: currentUser, text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
-                saveRoom(room); notifyTabs(currentRoomId);
-                messageInput.value = ''; renderChatScreen(); scrollToBottom();
+        async function leaveRoom() {
+            if (currentRoomId && currentUser) {
+                try {
+                    const roomRef = doc(db, "rooms", currentRoomId);
+                    await updateDoc(roomRef, {
+                        members: arrayRemove(currentUser),
+                        messages: arrayUnion({
+                            id: Date.now(),
+                            type: 'system',
+                            text: `${currentUser} が退出しました`,
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        })
+                    });
+                } catch (e) {}
+            }
+            if (unsubscribeRoom) unsubscribeRoom();
+            currentRoomId = null; currentUser = '';
+            chatScreen.classList.add('hidden'); roomInfoBar.classList.add('hidden'); roomInfoBar.classList.remove('flex');
+            lobbyScreen.classList.remove('hidden');
+        }
+
+        chatForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const text = messageInput.value.trim();
+            if (!text || !currentRoomId) return;
+            const msgObj = {
+                id: Date.now(),
+                type: 'user',
+                sender: currentUser,
+                text,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             };
+            messageInput.value = '';
+            try {
+                const roomRef = doc(db, "rooms", currentRoomId);
+                await updateDoc(roomRef, { messages: arrayUnion(msgObj) });
+            } catch (e) {}
+        };
 
-            leaveRoomBtn.onclick = () => { if (confirm('ルームを退出しますか？')) leaveRoom(); };
+        leaveRoomBtn.onclick = () => { if (confirm('ルームを退出しますか？')) leaveRoom(); };
 
-            function renderChatScreen() {
-                if (!currentRoomId) return;
-                const room = getRoom(currentRoomId);
-                if (!room) { leaveRoom(); return; }
-                sidebarRoomName.textContent = room.name;
-                memberCountBadge.textContent = room.members.length;
-                membersList.innerHTML = room.members.map(m => `
-                    <li class="flex items-center space-x-2 text-xs py-1.5 px-2 rounded-lg bg-slate-800/40 border border-slate-800">
-                        <div class="w-2 h-2 rounded-full ${m === currentUser ? 'bg-emerald-400' : 'bg-slate-500'}"></div>
-                        <span class="truncate ${m === currentUser ? 'text-emerald-300 font-semibold' : 'text-slate-300'}">${escapeHtml(m)}${m === currentUser ? ' (あなた)' : ''}</span>
-                    </li>
-                `).join('');
+        function renderChatScreen(room) {
+            sidebarRoomName.textContent = room.name;
+            memberCountBadge.textContent = room.members ? room.members.length : 0;
+            membersList.innerHTML = (room.members || []).map(m => `
+                <li class="flex items-center space-x-2 text-xs py-1.5 px-2 rounded-lg bg-slate-800/40 border border-slate-800">
+                    <div class="w-2 h-2 rounded-full ${m === currentUser ? 'bg-emerald-400' : 'bg-slate-500'}"></div>
+                    <span class="truncate ${m === currentUser ? 'text-emerald-300 font-semibold' : 'text-slate-300'}">${escapeHtml(m)}${m === currentUser ? ' (あなた)' : ''}</span>
+                </li>
+            `).join('');
 
-                messagesContainer.innerHTML = room.messages.map(msg => {
-                    if (msg.type === 'system') {
-                        return `<div class="flex justify-center my-2"><span class="bg-slate-800/80 border border-slate-700/50 text-slate-400 text-[11px] px-3 py-1 rounded-full">${escapeHtml(msg.text)}</span></div>`;
-                    }
-                    const isSelf = msg.sender === currentUser;
-                    return `
-                        <div class="flex flex-col ${isSelf ? 'items-end' : 'items-start'} my-2">
-                            <span class="text-[10px] text-slate-400 mb-1 px-1">${isSelf ? 'あなた' : escapeHtml(msg.sender)} • ${msg.timestamp}</span>
-                            <div class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${isSelf ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-medium rounded-br-none shadow' : 'bg-slate-800 border border-slate-700/60 text-slate-100 rounded-bl-none shadow'}">
-                                ${escapeHtml(msg.text)}
-                            </div>
+            messagesContainer.innerHTML = (room.messages || []).map(msg => {
+                if (msg.type === 'system') {
+                    return `<div class="flex justify-center my-2"><span class="bg-slate-800/80 border border-slate-700/50 text-slate-400 text-[11px] px-3 py-1 rounded-full">${escapeHtml(msg.text)}</span></div>`;
+                }
+                const isSelf = msg.sender === currentUser;
+                return `
+                    <div class="flex flex-col ${isSelf ? 'items-end' : 'items-start'} my-2">
+                        <span class="text-[10px] text-slate-400 mb-1 px-1">${isSelf ? 'あなた' : escapeHtml(msg.sender)} • ${msg.timestamp}</span>
+                        <div class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${isSelf ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-medium rounded-br-none shadow' : 'bg-slate-800 border border-slate-700/60 text-slate-100 rounded-bl-none shadow'}">
+                            ${escapeHtml(msg.text)}
                         </div>
-                    `;
-                }).join('');
-            }
+                    </div>
+                `;
+            }).join('');
+            scrollToBottom();
+        }
 
-            function scrollToBottom() { setTimeout(() => messagesContainer.scrollTop = messagesContainer.scrollHeight, 50); }
-            function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
+        function scrollToBottom() { setTimeout(() => messagesContainer.scrollTop = messagesContainer.scrollHeight, 50); }
+        function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
 
-            copyRoomIdBtn.onclick = () => { if (currentRoomId) navigator.clipboard.writeText(currentRoomId); };
-            testLaunchBtn.onclick = () => { if (currentRoomId) window.open(`${window.location.origin}${window.location.pathname}?room=${currentRoomId}`, '_blank'); };
-            toggleSidebarBtn.onclick = () => { chatSidebar.classList.remove('-translate-x-full'); sidebarOverlay.classList.remove('hidden'); };
-            sidebarOverlay.onclick = () => { chatSidebar.classList.add('-translate-x-full'); sidebarOverlay.classList.add('hidden'); };
-            window.addEventListener('storage', (e) => { if (e.key === STORAGE_KEY && currentRoomId) renderChatScreen(); });
-        })();
+        copyRoomIdBtn.onclick = () => { if (currentRoomId) navigator.clipboard.writeText(currentRoomId); };
+        toggleSidebarBtn.onclick = () => { chatSidebar.classList.remove('-translate-x-full'); sidebarOverlay.classList.remove('hidden'); };
+        sidebarOverlay.onclick = () => { chatSidebar.classList.add('-translate-x-full'); sidebarOverlay.classList.add('hidden'); };
     </script>
 </body>
 </html>
