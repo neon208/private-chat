@@ -24,7 +24,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent">Private Chat</h1>
-                    <p id="header-status" class="text-xs text-slate-400">どの端末からでも繋がるオンラインルームチャット</p>
+                    <p id="header-status" class="text-xs text-slate-400">オンライン対応チャット</p>
                 </div>
             </div>
             
@@ -73,15 +73,7 @@
                                 <input type="text" id="join-room-id" placeholder="6桁のルームIDを入力" 
                                     class="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 uppercase outline-none font-mono tracking-wider transition-all">
                             </div>
-                            <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-lock text-slate-400"></i> パスコード</span>
-                                    <span class="text-[10px] text-slate-500 font-normal">設定されている場合のみ</span>
-                                </label>
-                                <input type="password" id="join-passcode" placeholder="パスコード（任意）" 
-                                    class="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition-all">
-                            </div>
-                            <button id="action-join-btn" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl py-3 text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2">
+                            <button id="action-join-btn" type="button" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl py-3 text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2">
                                 <i class="fa-solid fa-right-to-bracket"></i> ルームに参加する
                             </button>
                         </div>
@@ -94,15 +86,7 @@
                                 <input type="text" id="create-room-name" placeholder="例: フリートーク部屋" max="30"
                                     class="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition-all">
                             </div>
-                            <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-lock text-emerald-400"></i> 参加用パスコード</span>
-                                    <span class="text-[10px] text-slate-500 font-normal">任意設定</span>
-                                </label>
-                                <input type="password" id="create-passcode" placeholder="パスコード（空欄で制限なし）" 
-                                    class="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition-all">
-                            </div>
-                            <button id="action-create-btn" class="w-full bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold rounded-xl py-3 text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2">
+                            <button id="action-create-btn" type="button" class="w-full bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold rounded-xl py-3 text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2">
                                 <i class="fa-solid fa-plus-circle"></i> ルームを新規作成
                             </button>
                         </div>
@@ -159,27 +143,19 @@
         </main>
     </div>
 
-    <!-- Firebase SDK (Version 9 Component) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { 
-            getFirestore, collection, doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, onSnapshot, serverTimestamp 
-        } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getDatabase, ref, set, get, child, onValue, push } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-database.js";
 
-        // 公開用デモ構成（テスト用設定）
+        // 公開リアルタイム通信DB設定
         const firebaseConfig = {
-            apiKey: "AIzaSyD-DemoKeyForPublicTestingChatApp",
-            authDomain: "public-chat-demo-app.firebaseapp.com",
-            projectId: "public-chat-demo-app",
-            storageBucket: "public-chat-demo-app.appspot.com",
-            messagingSenderId: "100000000000",
-            appId: "1:100000000000:web:abcdef123456789"
+            databaseURL: "https://public-chat-demo-default-rtdb.firebaseio.com"
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        const db = getDatabase(app);
 
-        let currentUser = '', currentRoomId = null, unsubscribeRoom = null;
+        let currentUser = '', currentRoomId = null, roomListener = null;
 
         const lobbyScreen = document.getElementById('lobby-screen');
         const chatScreen = document.getElementById('chat-screen');
@@ -191,9 +167,7 @@
         const formJoin = document.getElementById('form-join');
         const formCreate = document.getElementById('form-create');
         const joinRoomId = document.getElementById('join-room-id');
-        const joinPasscode = document.getElementById('join-passcode');
         const createRoomName = document.getElementById('create-room-name');
-        const createPasscode = document.getElementById('create-passcode');
         const actionJoinBtn = document.getElementById('action-join-btn');
         const actionCreateBtn = document.getElementById('action-create-btn');
         const leaveRoomBtn = document.getElementById('leave-room-btn');
@@ -218,9 +192,6 @@
         function showAlert(msg) { lobbyAlertMsg.textContent = msg; lobbyAlert.classList.remove('hidden'); }
         function hideAlert() { lobbyAlert.classList.add('hidden'); }
 
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('room')) joinRoomId.value = params.get('room').toUpperCase();
-
         tabJoinBtn.onclick = () => {
             tabJoinBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-100 bg-slate-800 shadow';
             tabCreateBtn.className = 'flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400';
@@ -234,19 +205,17 @@
 
         actionCreateBtn.onclick = async () => {
             hideAlert();
-            const u = usernameInput.value.trim(), name = createRoomName.value.trim(), pass = createPasscode.value;
+            const u = usernameInput.value.trim(), name = createRoomName.value.trim();
             if (!u) { showAlert('表示名を入力してください'); return; }
             if (!name) { showAlert('ルーム名を入力してください'); return; }
             const id = generateRoomId();
 
             try {
-                const roomRef = doc(db, "rooms", id);
-                await setDoc(roomRef, {
-                    name,
-                    passcode: pass || null,
+                const roomRef = ref(db, 'rooms/' + id);
+                await set(roomRef, {
+                    name: name,
                     members: [u],
                     messages: [{
-                        id: Date.now(),
                         type: 'system',
                         text: `ルーム「${name}」が作成されました`,
                         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -254,35 +223,35 @@
                 });
                 enterRoom(id, u);
             } catch (e) {
-                showAlert('ルームの作成に失敗しました。');
+                showAlert('作成エラー: ' + e.message);
             }
         };
 
         actionJoinBtn.onclick = async () => {
             hideAlert();
-            const u = usernameInput.value.trim(), id = joinRoomId.value.trim().toUpperCase(), pass = joinPasscode.value;
+            const u = usernameInput.value.trim(), id = joinRoomId.value.trim().toUpperCase();
             if (!u) { showAlert('表示名を入力してください'); return; }
             if (!id) { showAlert('ルームIDを入力してください'); return; }
 
             try {
-                const roomRef = doc(db, "rooms", id);
-                const roomSnap = await getDoc(roomRef);
-                if (!roomSnap.exists()) { showAlert('指定されたルームが見つかりません'); return; }
-                const room = roomSnap.data();
-                if (room.passcode && room.passcode !== pass) { showAlert('パスコードが正しくありません'); return; }
+                const snapshot = await get(child(ref(db), `rooms/${id}`));
+                if (!snapshot.exists()) { showAlert('指定されたルームが見つかりません'); return; }
+                
+                const roomData = snapshot.val();
+                const members = roomData.members || [];
+                if (!members.includes(u)) members.push(u);
 
-                await updateDoc(roomRef, {
-                    members: arrayUnion(u),
-                    messages: arrayUnion({
-                        id: Date.now(),
-                        type: 'system',
-                        text: `${u} が参加しました`,
-                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    })
+                const messages = roomData.messages || [];
+                messages.push({
+                    type: 'system',
+                    text: `${u} が参加しました`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 });
+
+                await set(ref(db, `rooms/${id}`), { ...roomData, members, messages });
                 enterRoom(id, u);
             } catch (e) {
-                showAlert('ルームへの参加に失敗しました。');
+                showAlert('参加エラー: ' + e.message);
             }
         };
 
@@ -292,33 +261,15 @@
             roomInfoBar.classList.remove('hidden'); roomInfoBar.classList.add('flex');
             displayRoomId.textContent = id;
 
-            // リアルタイムリスナーを開始
-            const roomRef = doc(db, "rooms", id);
-            unsubscribeRoom = onSnapshot(roomRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    renderChatScreen(docSnap.data());
-                } else {
-                    leaveRoom();
+            const roomRef = ref(db, 'rooms/' + id);
+            roomListener = onValue(roomRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    renderChatScreen(snapshot.val());
                 }
             });
         }
 
-        async function leaveRoom() {
-            if (currentRoomId && currentUser) {
-                try {
-                    const roomRef = doc(db, "rooms", currentRoomId);
-                    await updateDoc(roomRef, {
-                        members: arrayRemove(currentUser),
-                        messages: arrayUnion({
-                            id: Date.now(),
-                            type: 'system',
-                            text: `${currentUser} が退出しました`,
-                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        })
-                    });
-                } catch (e) {}
-            }
-            if (unsubscribeRoom) unsubscribeRoom();
+        function leaveRoom() {
             currentRoomId = null; currentUser = '';
             chatScreen.classList.add('hidden'); roomInfoBar.classList.add('hidden'); roomInfoBar.classList.remove('flex');
             lobbyScreen.classList.remove('hidden');
@@ -328,33 +279,37 @@
             e.preventDefault();
             const text = messageInput.value.trim();
             if (!text || !currentRoomId) return;
-            const msgObj = {
-                id: Date.now(),
-                type: 'user',
-                sender: currentUser,
-                text,
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            };
-            messageInput.value = '';
-            try {
-                const roomRef = doc(db, "rooms", currentRoomId);
-                await updateDoc(roomRef, { messages: arrayUnion(msgObj) });
-            } catch (e) {}
+
+            const snapshot = await get(child(ref(db), `rooms/${currentRoomId}`));
+            if (snapshot.exists()) {
+                const roomData = snapshot.val();
+                const messages = roomData.messages || [];
+                messages.push({
+                    type: 'user',
+                    sender: currentUser,
+                    text: text,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                });
+                messageInput.value = '';
+                await set(ref(db, `rooms/${currentRoomId}`), { ...roomData, messages });
+            }
         };
 
         leaveRoomBtn.onclick = () => { if (confirm('ルームを退出しますか？')) leaveRoom(); };
 
         function renderChatScreen(room) {
             sidebarRoomName.textContent = room.name;
-            memberCountBadge.textContent = room.members ? room.members.length : 0;
-            membersList.innerHTML = (room.members || []).map(m => `
+            const members = room.members || [];
+            memberCountBadge.textContent = members.length;
+            membersList.innerHTML = members.map(m => `
                 <li class="flex items-center space-x-2 text-xs py-1.5 px-2 rounded-lg bg-slate-800/40 border border-slate-800">
                     <div class="w-2 h-2 rounded-full ${m === currentUser ? 'bg-emerald-400' : 'bg-slate-500'}"></div>
                     <span class="truncate ${m === currentUser ? 'text-emerald-300 font-semibold' : 'text-slate-300'}">${escapeHtml(m)}${m === currentUser ? ' (あなた)' : ''}</span>
                 </li>
             `).join('');
 
-            messagesContainer.innerHTML = (room.messages || []).map(msg => {
+            const messages = room.messages || [];
+            messagesContainer.innerHTML = messages.map(msg => {
                 if (msg.type === 'system') {
                     return `<div class="flex justify-center my-2"><span class="bg-slate-800/80 border border-slate-700/50 text-slate-400 text-[11px] px-3 py-1 rounded-full">${escapeHtml(msg.text)}</span></div>`;
                 }
