@@ -6,8 +6,6 @@
     <title>Private Chat Room</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <!-- PeerJS (サーバー不要で端末同士を直接つなぐライブラリ) -->
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
         body { font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif; }
@@ -26,7 +24,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent">Private Chat</h1>
-                    <p id="header-status" class="text-xs text-slate-400">オンライン対応チャット</p>
+                    <p class="text-xs text-slate-400">プライベートチャットルーム</p>
                 </div>
             </div>
             
@@ -63,16 +61,16 @@
 
                     <div class="border-t border-slate-800 pt-5 space-y-4">
                         <div class="flex p-1 bg-slate-950 rounded-xl border border-slate-800">
-                            <button id="tab-join-btn" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all text-slate-100 bg-slate-800 shadow">既存のルームに参加</button>
-                            <button id="tab-create-btn" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-slate-200">新規ルーム作成</button>
+                            <button id="tab-join-btn" type="button" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all text-slate-100 bg-slate-800 shadow">既存のルームに参加</button>
+                            <button id="tab-create-btn" type="button" class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all text-slate-400 hover:text-slate-200">新規ルーム作成</button>
                         </div>
 
                         <div id="form-join" class="space-y-4">
                             <div class="space-y-1.5">
                                 <label class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                                    <i class="fa-solid fa-key text-emerald-400"></i> ルームID
+                                    <i class="fa-solid” fa-key text-emerald-400"></i> ルームID
                                 </label>
-                                <input type="text" id="join-room-id" placeholder="6桁のルームIDを入力" 
+                                <input type="text" id="join-room-id" placeholder="ルームIDを入力" 
                                     class="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 uppercase outline-none font-mono tracking-wider transition-all">
                             </div>
                             <button id="action-join-btn" type="button" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl py-3 text-sm shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2">
@@ -113,7 +111,7 @@
                     <div class="flex-1 p-4 overflow-y-auto scrollbar-thin space-y-3">
                         <div class="flex justify-between items-center text-xs text-slate-400 font-semibold">
                             <span>参加メンバー</span>
-                            <span id="member-count-badge" class="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[10px]">0</span>
+                            <span id="member-count-badge" class="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[10px]">1</span>
                         </div>
                         <ul id="members-list" class="space-y-1.5"></ul>
                     </div>
@@ -123,7 +121,7 @@
 
                 <div class="flex-1 flex flex-col h-full bg-slate-950/40 relative min-w-0">
                     <div class="md:hidden bg-slate-900/80 border-b border-slate-800 px-4 py-2 flex items-center justify-between">
-                        <button id="toggle-sidebar-btn" class="text-slate-400 hover:text-slate-100 p-1">
+                        <button id="toggle-sidebar-btn" type="button" class="text-slate-400 hover:text-slate-100 p-1">
                             <i class="fa-solid fa-users text-sm"></i>
                             <span class="text-xs ml-1 font-medium">参加者リスト</span>
                         </button>
@@ -146,10 +144,8 @@
     </div>
 
     <script>
-        let peer = null, conn = null;
-        let currentUser = '', currentRoomName = '', members = [], messages = [];
-        let isHost = false;
-        let connections = []; // ホストの場合の参加者コネクション一覧
+        let currentUser = '', currentRoomId = '', currentRoomName = '';
+        let messages = [];
 
         const lobbyScreen = document.getElementById('lobby-screen');
         const chatScreen = document.getElementById('chat-screen');
@@ -197,7 +193,7 @@
             formCreate.classList.remove('hidden'); formJoin.classList.add('hidden'); hideAlert();
         };
 
-        // ルーム新規作成
+        // 新規作成ボタン
         actionCreateBtn.onclick = () => {
             hideAlert();
             const u = usernameInput.value.trim();
@@ -205,101 +201,51 @@
             if (!u) { showAlert('表示名を入力してください'); return; }
             if (!name) { showAlert('ルーム名を入力してください'); return; }
 
-            const roomId = generateRoomId();
             currentUser = u;
             currentRoomName = name;
-            isHost = true;
-            members = [u];
+            currentRoomId = generateRoomId();
             messages = [{ type: 'system', text: `ルーム「${name}」が作成されました`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }];
 
-            peer = new Peer(roomId);
-            peer.on('open', (id) => {
-                enterChatRoom(roomId);
-            });
-            peer.on('error', (err) => {
-                showAlert('ルーム作成エラー: ' + err.type);
-            });
-            peer.on('connection', (c) => {
-                connections.push(c);
-                c.on('data', (data) => handleHostData(c, data));
-                c.on('close', () => {
-                    connections = connections.filter(item => item !== c);
-                });
-            });
+            // ローカルストレージにルーム情報を保存
+            const roomData = { name, messages, members: [u] };
+            localStorage.setItem('chat_room_' + currentRoomId, JSON.stringify(roomData));
+
+            enterChatRoom();
         };
 
-        // ルームに参加
+        // 参加ボタン
         actionJoinBtn.onclick = () => {
             hideAlert();
             const u = usernameInput.value.trim();
-            const roomId = joinRoomId.value.trim().toUpperCase();
+            const id = joinRoomId.value.trim().toUpperCase();
             if (!u) { showAlert('表示名を入力してください'); return; }
-            if (!roomId) { showAlert('ルームIDを入力してください'); return; }
+            if (!id) { showAlert('ルームIDを入力してください'); return; }
+
+            const saved = localStorage.getItem('chat_room_' + id);
+            if (!saved) { showAlert('指定されたルームが見つかりません'); return; }
+
+            const roomData = JSON.parse(saved);
+            if (!roomData.members.includes(u)) roomData.members.push(u);
+            roomData.messages.push({ type: 'system', text: `${u} が参加しました`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+            localStorage.setItem('chat_room_' + id, JSON.stringify(roomData));
 
             currentUser = u;
-            isHost = false;
+            currentRoomId = id;
+            currentRoomName = roomData.name;
+            messages = roomData.messages;
 
-            peer = new Peer();
-            peer.on('open', (id) => {
-                conn = peer.connect(roomId);
-                conn.on('open', () => {
-                    conn.send({ type: 'JOIN', username: u });
-                });
-                conn.on('data', (data) => handleClientData(data));
-                conn.on('error', (err) => {
-                    showAlert('接続エラー: ルームが見つかりません');
-                });
-            });
-            peer.on('error', (err) => {
-                showAlert('接続エラー: ' + err.type);
-            });
+            enterChatRoom();
         };
 
-        function enterChatRoom(id) {
+        function enterChatRoom() {
             lobbyScreen.classList.add('hidden');
             chatScreen.classList.remove('hidden');
             roomInfoBar.classList.remove('hidden');
             roomInfoBar.classList.add('flex');
-            displayRoomId.textContent = id;
+            displayRoomId.textContent = currentRoomId;
             renderChatScreen();
         }
 
-        // ホスト側のデータ受信処理
-        function handleHostData(c, data) {
-            if (data.type === 'JOIN') {
-                if (!members.includes(data.username)) {
-                    members.push(data.username);
-                    messages.push({ type: 'system', text: `${data.username} が参加しました`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
-                    broadcast({ type: 'UPDATE', members, messages, roomName: currentRoomName });
-                    renderChatScreen();
-                }
-            } else if (data.type === 'MESSAGE') {
-                messages.push(data.message);
-                broadcast({ type: 'UPDATE', members, messages, roomName: currentRoomName });
-                renderChatScreen();
-            }
-        }
-
-        // クライアント側のデータ受信処理
-        function handleClientData(data) {
-            if (data.type === 'UPDATE') {
-                members = data.members;
-                messages = data.messages;
-                currentRoomName = data.roomName;
-                if (lobbyScreen.classList.contains('hidden') === false) {
-                    enterChatRoom(joinRoomId.value.trim().toUpperCase());
-                } else {
-                    renderChatScreen();
-                }
-            }
-        }
-
-        // ホストから全員へブロードキャスト
-        function broadcast(data) {
-            connections.forEach(c => c.send(data));
-        }
-
-        // メッセージ送信
         chatForm.onsubmit = (e) => {
             e.preventDefault();
             const text = messageInput.value.trim();
@@ -313,24 +259,25 @@
             };
             messageInput.value = '';
 
-            if (isHost) {
-                messages.push(msgObj);
-                broadcast({ type: 'UPDATE', members, messages, roomName: currentRoomName });
-                renderChatScreen();
-            } else {
-                conn.send({ type: 'MESSAGE', message: msgObj });
+            messages.push(msgObj);
+            const saved = localStorage.getItem('chat_room_' + currentRoomId);
+            if (saved) {
+                const roomData = JSON.parse(saved);
+                roomData.messages = messages;
+                localStorage.setItem('chat_room_' + currentRoomId, JSON.stringify(roomData));
             }
+            renderChatScreen();
         };
 
         leaveRoomBtn.onclick = () => {
-            if (confirm('ルームを退出しますか？')) {
-                if (peer) peer.destroy();
-                location.reload();
-            }
+            if (confirm('ルームを退出しますか？')) location.reload();
         };
 
         function renderChatScreen() {
-            sidebarRoomName.textContent = currentRoomName || 'チャットルーム';
+            sidebarRoomName.textContent = currentRoomName;
+            const saved = localStorage.getItem('chat_room_' + currentRoomId);
+            const members = saved ? JSON.parse(saved).members : [currentUser];
+
             memberCountBadge.textContent = members.length;
             membersList.innerHTML = members.map(m => `
                 <li class="flex items-center space-x-2 text-xs py-1.5 px-2 rounded-lg bg-slate-800/40 border border-slate-800">
@@ -359,10 +306,7 @@
         function scrollToBottom() { setTimeout(() => messagesContainer.scrollTop = messagesContainer.scrollHeight, 50); }
         function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
 
-        copyRoomIdBtn.onclick = () => { 
-            const roomIdText = displayRoomId.textContent;
-            if (roomIdText) navigator.clipboard.writeText(roomIdText); 
-        };
+        copyRoomIdBtn.onclick = () => { navigator.clipboard.writeText(currentRoomId); };
         toggleSidebarBtn.onclick = () => { chatSidebar.classList.remove('-translate-x-full'); sidebarOverlay.classList.remove('hidden'); };
         sidebarOverlay.onclick = () => { chatSidebar.classList.add('-translate-x-full'); sidebarOverlay.classList.add('hidden'); };
     </script>
